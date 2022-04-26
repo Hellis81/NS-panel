@@ -2,6 +2,9 @@
 
 This is mainly copied from https://github.com/marcfager/nspanel-mf with a little from https://github.com/masto/NSPanel-Demo-Files, and lastly colorWheel from https://github.com/MMMZZZZ/Random-Stuff/tree/master/Nextion%20Circular%20Color%20Picker give them the credit they deserve, I'm merely a copy paste ninja.
 
+[![NS panel video](https://img.youtube.com/vi/mT9ttnZMYog/0.jpg)](https://www.youtube.com/watch?v=mT9ttnZMYog)
+
+
 The key changes from what Marc's repository is that I have moved a lot of yaml from ESP-Home to Home Assistant or hard coded it in Nextion.
 Marc has sensors with the friendly names of the lights which is great, but because of the flash memory limitation I rather hard code it and live with that I some day may need to change it.
 
