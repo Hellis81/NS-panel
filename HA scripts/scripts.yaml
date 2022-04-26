@@ -1,4 +1,4 @@
-```
+
 ns_kitchen_temp_up:
   alias: ns kitchen temp up
   sequence:
@@ -52,4 +52,3 @@ ns_kitchen_temp_boost:
         entity_id: '{{ ''input_boolean.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
           | replace(''climate.'', '''') }}'
   mode: single
-```
