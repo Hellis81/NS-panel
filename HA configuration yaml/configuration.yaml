@@ -1,0 +1,30 @@
+```
+sensor:
+  - platform: template
+    sensors:
+      ns_kitchen_selected_room:
+        value_template: "{{ state_attr(states('input_text.ns_kitchen_temp'), 'temperature') }}"
+        
+  - platform: template
+    sensors:
+      ns_kitchen_selected_room_heating:
+        value_template: "{{ states('switch.trv_' ~ states('input_text.ns_kitchen_temp') | replace('climate.', '') ~ '_on_off') }}"
+        
+  - platform: template
+    sensors:
+      ns_kitchen_selected_room_boost:
+        value_template: "{{ states('input_boolean.ns_panel_kitchen_boost_' ~ states('input_text.ns_kitchen_temp') | replace('climate.', '')) }}"
+        
+  - platform: template
+    sensors:
+      weather_fivedays_ns:
+        friendly_name: "Vädret fem dagar NS-Panel"
+        value_template: >-
+                {% set days = {'Mon':'Måndag','Tue':'Tisdag','Wed':'Onsdag','Thu':'Torsdag','Fri':'Fredag','Sat':'Lördag','Sun':'Söndag'} %}
+                {{ (state_attr('weather.smhi_home', 'wind_speed') | float / 3.6) |round(1) }}|
+                {% for state in states.weather.smhi_home.attributes.forecast[0:5] -%}
+               
+                {{ days[as_timestamp(state.datetime, 0)| timestamp_custom("%a", 0)] }};{{state.templow}}-{{ state.temperature }}°C;{{ state.precipitation | replace('.', ',') }}mm;{{ state.condition }}#
+                
+                {%- endfor %}
+```
