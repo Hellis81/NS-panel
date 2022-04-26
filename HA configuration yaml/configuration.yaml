@@ -1,4 +1,4 @@
-```
+
 sensor:
   - platform: template
     sensors:
@@ -27,4 +27,3 @@ sensor:
                 {{ days[as_timestamp(state.datetime, 0)| timestamp_custom("%a", 0)] }};{{state.templow}}-{{ state.temperature }}°C;{{ state.precipitation | replace('.', ',') }}mm;{{ state.condition }}#
                 
                 {%- endfor %}
-```
