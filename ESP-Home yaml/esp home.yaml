@@ -1,0 +1,945 @@
+# Set some variables for convenience
+substitutions:
+  node_name: ns-kitchen
+  device_name: ns-panel
+
+# Note: this may not be needed if the pull request has been merged.
+# Check https://github.com/esphome/esphome/pull/2956 for current status.
+external_components:
+  - source: github://pr#2956
+    components: [nextion]
+    refresh: 1h
+
+esphome:
+  name: $node_name
+  comment: $device_name
+
+esp32:
+  board: esp32dev
+
+      
+ota:
+  password: "5f4761e1713a7eb52fa435982723a040"
+
+wifi:
+  ssid: [SSID]
+  password: [password]
+
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Ns-Kitchen Fallback Hotspot"
+    password: ""
+
+captive_portal:
+
+# API. Add api_pwd to your secrets.yaml.
+api:
+  # password: !secret api_pwd
+  services:
+    # Service to play a rtttl tone
+    - service: play_rtttl
+      variables:
+        song_str: string
+      then:
+        - rtttl.play:
+            rtttl: !lambda 'return song_str;'
+    # Service to update the HMI file
+    - service: upload_tft
+      then:
+        - lambda: 'id(disp1)->upload_tft();'
+    # Service to control the visible page from Home Assistant
+    - service: set_page
+      variables:
+        page: int
+      then:
+        - lambda: id(disp1).send_command_printf("page %i", page);
+    # Service to show a notification on the screen for 15 s. Tap or wait to close
+    - service: notification
+      variables:
+        header: string
+        message: string
+      then:
+        - lambda: |-
+            id(disp1).set_component_text_printf("Notifications.head", "%s", header.c_str());
+            id(disp1).set_component_text_printf("Notifications.body", "%s", message.c_str());
+            id(disp1).send_command_printf("page 3");
+        - rtttl.play: "twobits:d=4,o=5,b=220:c6,8g,8g,a,g,p,b,c6"
+        - delay: 15s
+        - lambda: |-
+            id(disp1).send_command_printf("page 0");
+            id(disp1).set_component_text_printf("Notifications.head", " ");
+            id(disp1).set_component_text_printf("Notifications.body", " ");
+            id(disp1).send_command_printf("page 0");
+    # Service to send a command directly to the display. Useful for testing
+    - service: send_command
+      variables:
+        cmd: string
+      then:
+        - lambda: 'id(disp1).send_command_printf("%s", cmd.c_str());'
+    # Service to show a QR code on the display (ex. for WiFi password)
+    - service: display_qr
+      then:
+        - lambda: |-
+            id(disp1).send_command_printf("page 4");
+        - delay: 30s
+        - lambda: |-
+            id(disp1).send_command_printf("page 0");
+    # Service to wake up screen
+    - service: wakeup_screen
+      then:
+        - lambda: |-
+            id(disp1).send_command_printf("page 0");
+# Time component that fetches time from Home Assistant and updates the display once a minute and when the display is ready at bootup (and time is available).
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        minutes: /1
+        then:
+          - lambda: id(disp1).set_component_text_printf("Home.time", "%02i:%02i", id(homeassistant_time).now().hour, id(homeassistant_time).now().minute);
+          - lambda: id(disp1).set_component_text_printf("Home.date", "%i-%02i-%02i", id(homeassistant_time).now().year, id(homeassistant_time).now().month, id(homeassistant_time).now().day_of_month);
+    on_time_sync:
+        then:
+          - wait_until:
+              switch.is_on: nextion_init
+          - lambda: id(disp1).set_component_text_printf("Home.time", "%02i:%02i", id(homeassistant_time).now().hour, id(homeassistant_time).now().minute);
+          - lambda: id(disp1).set_component_text_printf("Home.date", "%i-%02i-%02i", id(homeassistant_time).now().year, id(homeassistant_time).now().month, id(homeassistant_time).now().day_of_month);
+          
+
+# Logger. Disable the temperature sensor etc. to focus on the HMI development
+logger:
+  baud_rate: 0
+  level: DEBUG
+  logs:
+    sensor: WARN
+    resistance: WARN
+    text_sensor: WARN
+    ntc: WARN
+
+
+# Uart for the Nextion display
+uart:
+  tx_pin: 16
+  rx_pin: 17
+  baud_rate: 115200
+  id: tf_uart
+
+
+# A reboot button is always useful
+button:
+  - platform: restart
+    name: $device_name Restart
+
+# Binary sensors
+binary_sensor:
+  # Left button below the display
+  - platform: gpio
+    name: $device_name Left Button
+    pin:
+      number: 14
+      inverted: true
+    on_click:
+      - switch.toggle: relay_1
+
+  # Right button below the display
+  - platform: gpio
+    name: $device_name Right Button
+    pin:
+      number: 27
+      inverted: true
+    on_click:
+      - switch.toggle: relay_2
+
+output:
+  # Buzzer for playing tones
+  - platform: ledc
+    id: buzzer_out
+    pin:
+      number: 21
+      
+switch:
+  # Physical relay 1
+  - platform: gpio
+    name: $device_name Relay 1
+    id: relay_1
+    pin:
+      number: 22
+
+  # Physical relay 2
+  - platform: gpio
+    name: $device_name Relay 2
+    id: relay_2
+    pin:
+      number: 19
+
+  # Turn screen power on/off. Easy way to configure the screen power control, but this should not be used from HA, as all components must be re-initialized afterwards. For lights, names of lights etc. this practically means that the state must change once to happen.
+  - platform: gpio
+    name: $device_name Screen Power
+    id: screen_power
+    entity_category: config
+    pin:
+      number: 4
+      inverted: true
+    restore_mode: ALWAYS_ON
+
+  # Basically a global variable to keep track on whether the Nextion display is ready or not. Delays initial info from HA to the display.
+  - platform: template
+    name: $device_name Nextion inited
+    id: nextion_init
+    entity_category: config
+    restore_state: false
+    assumed_state: off
+    optimistic: true
+    
+  # # Show alarm screen on the display and disable it (except for physical buttons).
+  # - platform: template
+  #   name: $device_name Alarm screen
+  #   id: alarm_activated
+  #   restore_state: false
+  #   assumed_state: off
+  #   optimistic: true
+  #   on_turn_on:
+  #     - lambda: id(disp1).send_command_printf("page 5");
+  #   on_turn_off:
+  #     - lambda: id(disp1).send_command_printf("page 0");
+
+  # # Disable Dim-down-function on screen
+  # - platform: template
+  #   name: $device_name Disable dim-down
+  #   id: disp1_disdim
+  #   restore_state: true
+  #   assumed_state: off
+  #   optimistic: true
+  #   on_turn_on:
+  #     - lambda: id(disp1).send_command_printf("Home.disdim.val=1");
+  #   on_turn_off:
+  #     - lambda: id(disp1).send_command_printf("Home.disdim.val=0");
+
+  # # Disable Screensaver-function on screen
+  # - platform: template
+  #   name: $device_name Disable screensaver
+  #   id: disp1_dissleep
+  #   restore_state: true
+  #   assumed_state: off
+  #   optimistic: true
+  #   on_turn_on:
+  #     - lambda: id(disp1).send_command_printf("Home.dissleep.val=1");
+  #   on_turn_off:
+  #     - lambda: id(disp1).send_command_printf("Home.dissleep.val=0");
+
+  # # Disable Go to Home page-function on screen
+  # - platform: template
+  #   name: $device_name Disable go to home
+  #   id: disp1_disgth
+  #   restore_state: true
+  #   assumed_state: off
+  #   optimistic: true
+  #   on_turn_on:
+  #     - lambda: id(disp1).send_command_printf("Home.disgth.val=1");
+  #   on_turn_off:
+  #     - lambda: id(disp1).send_command_printf("Home.disgth.val=0");
+
+
+# Rtttl function for buzzer
+rtttl:
+  id: buzzer
+  output: buzzer_out
+
+sensor:
+  # Internal temperature sensor, adc value
+  - platform: adc
+    id: ntc_source
+    pin: 38
+    update_interval: 10s
+    attenuation: 11db
+
+  # Internal temperature sensor, adc reading converted to resistance (calculation) 
+  - platform: resistance
+    id: resistance_sensor
+    sensor: ntc_source
+    configuration: DOWNSTREAM
+    resistor: 11.2kOhm
+
+  # Internal temperature sensor, resistance to temperature (calculation)
+  - platform: ntc
+    id: temperature
+    sensor: resistance_sensor
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 10kOhm
+    name: $device_name Temperature
+
+  # # Uptime for the display. Also updates a human readable one (further down)
+  # - platform: uptime
+  #   name: $device_name Uptime Sensor
+  #   id: uptime_sensor
+  #   update_interval: 60s
+  #   on_raw_value:
+  #     then:
+  #       - text_sensor.template.publish:
+  #           id: uptime_human
+  #           state: !lambda |-
+  #               int seconds = round(id(uptime_sensor).raw_state);
+  #               int days = seconds / (24 * 3600);
+  #               seconds = seconds % (24 * 3600);
+  #               int hours = seconds / 3600;
+  #               seconds = seconds % 3600;
+  #               int minutes = seconds /  60;
+  #               seconds = seconds % 60;
+  #               return (
+  #                 (days ? to_string(days) + "d " : "") +
+  #                 (hours ? to_string(hours) + "h " : "") +
+  #                 (minutes ? to_string(minutes) + "m " : "") +
+  #                 (to_string(seconds) + "s")
+  #               ).c_str();
+  # # WiFi signals strength sensor
+  # - platform: wifi_signal
+  #   name: $device_name WiFi Signal Sensor
+  #   update_interval: 60s
+
+  # Current page displayed on the HMi
+  - platform: nextion
+    name: $device_name Current display page
+    id: disp1_current_page
+    variable_name: dp
+    update_interval: 1s
+    
+
+  # previous page, this sensor is not needed. It can be commented out if you want. 
+  # It's only for debugging when longpressing.
+  - platform: nextion
+    nextion_id: disp1
+    name: $device_name prev page
+    id: disp1_prev_page
+    update_interval: 1s
+    component_name: vprevpage
+
+
+  # Thermostat selected room, fetched from HA
+  - platform: homeassistant
+    id: selected_thermostat
+    entity_id: sensor.ns_kitchen_selected_room
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Thermostat.temp", "%.1f", id(selected_thermostat).state);
+
+
+
+        
+  # Temperature kitchen/livingroom current temperature, fetched from HA
+  - platform: homeassistant
+    id: kok_temp
+    entity_id: sensor.temperatur_vardagsrum_temperature
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Thermostat.tempkok", "%.1f", id(kok_temp).state);
+        
+  # Temperature Matilda current temperature, fetched from HA
+  - platform: homeassistant
+    id: matilda_temp
+    entity_id: sensor.temperatur_matilda_temperature
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Thermostat.tempmatilda", "%.1f", id(matilda_temp).state);
+
+  # Temperature David current temperature, fetched from HA
+  - platform: homeassistant
+    id: david_temp
+    entity_id: sensor.temperatur_david_temperature
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Thermostat.tempdavid", "%.1f", id(david_temp).state);
+        
+  # Temperature sovrum current temperature, fetched from HA
+  - platform: homeassistant
+    id: sovrum_temp
+    entity_id: sensor.temperatur_sovrum_temperature
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Thermostat.tempsovrum", "%.1f", id(sovrum_temp).state);
+        
+text_sensor:
+  # last click sensor, the main action variable
+  - platform: nextion
+    nextion_id: disp1
+    name: $device_name last click va
+    id: disp1_last_click_va
+    update_interval: 100ms
+    component_name: va0
+    
+    
+  # this is what day as in a integer you want to display on the weather. 
+  # 0 is today, 1 is tomorrow and so on. The number is incremented per click in Nextion.
+  - platform: nextion
+    nextion_id: disp1
+    name: $device_name day
+    id: disp1_day
+    component_name: Home.dayt
+    update_interval: 1s
+    on_value:
+      then:
+        - wait_until:
+             switch.is_on: nextion_init
+        - lambda: |-
+            std::string str = "";
+            std::vector<std::string> v;
+            std::vector<std::string> five;
+            char * token;
+            char seps[] = ";";
+            std::string fivedays = "";
+            fivedays = id(weather_symbol).state;
+          
+            //ESP_LOGD("%s", fivedays.c_str());
+            five.clear();
+            std::string w_speed = "";
+            
+            int count = 0;
+            int daycount = 0;
+            std::string day;
+          
+            w_speed = strtok (&fivedays[0],"| ");
+            fivedays = strtok (NULL, " ");
+            
+            token = strtok (&fivedays[0],"#");
+            while (token != NULL)
+            {
+              five.push_back(token);
+              token = strtok (NULL, "#");
+            }
+            day = id(disp1_day).state;
+            
+            
+            for ( std::string fiv : five ) {
+              //ESP_LOGD("test: ", "daycount: %s", daycount);
+              //ESP_LOGD("test: ", "day: %s", day;
+              if(to_string(daycount) == day){
+                str = "";
+                str = fiv;
+                //ESP_LOGD("test: ", "String to Vector: %s", str.c_str());
+                v.clear();
+                token = strtok (&str[0],seps);
+                while (token != NULL)
+                {
+                  v.push_back(token);
+                  token = strtok (NULL, seps);
+                }
+                for ( std::string s : v ) {
+                  if(count == 0){
+                    if(daycount == 0){
+                      id(disp1).set_component_text_printf("Home.dag", "%s", "Idag");
+                      id(disp1).set_component_text_printf("Home.wind", "%s m/s", w_speed.c_str());
+                    }else if(daycount == 1){
+                      id(disp1).set_component_text_printf("Home.dag", "%s", "Imorgon");
+                      id(disp1).set_component_text_printf("Home.wind", "%s", " ");
+                    }else{
+                      id(disp1).set_component_text_printf("Home.dag", "%s", s.c_str());
+                      id(disp1).set_component_text_printf("Home.wind", "%s", " ");
+                    }
+                  }else if(count == 1){
+                    id(disp1).set_component_text_printf("Home.temp", "%s", s.c_str());
+                  }else if(count == 2){
+                    id(disp1).set_component_text_printf("Home.tempfl", "%s", s.c_str());
+                  }else if(count == 3){
+                    int symbol=5; // 5 is a empty box.
+                    if (s == "clear-night") {
+                      symbol=6;
+                    } else if (s == "cloudy") {
+                      symbol=7;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=8;
+                      }
+                    } else if (s == "fog") {
+                      symbol=9;
+                    } else if (s == "hail" || s == "snowy-rainy") {
+                      symbol=10;
+                    } else if (s == "lightning") {
+                      symbol=11;
+                    } else if (s == "lightning-rainy" || s == "exceptional") {
+                      symbol=12;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=13;
+                      }
+                    } else if (s == "partlycloudy") {
+                      symbol=14;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=8;
+                      }
+                    } else if (s == "pouring") {
+                      symbol=15;
+                    } else if (s == "rainy") {
+                      symbol=16;
+                    } else if (s == "snowy") {
+                      symbol=17;
+                    } else if (s == "sunny") {
+                      symbol=18;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol = 6;
+                      }
+                    } else if (s == "windy" || s == "windy-variant") {
+                      symbol=19;              
+                    }
+                    id(disp1).send_command_printf("Home.weather_symbol.pic=%i", symbol);
+                  }
+                   
+                  //ESP_LOGD("test: ", "s %s", s.c_str());
+                  count += 1;
+                }
+                
+                count = 0;
+              }
+              daycount += 1;
+            }
+
+
+
+    
+  # IP address of device. Not really needed for HA (as HA already knows it), but for showing on the display during startup. The startup screen will leave on if no instance connects to the API.
+  # - platform: wifi_info
+  #   ip_address:
+  #     name: $device_name IP address
+  #     id: ip_address
+  #     on_value:
+  #       then:
+  #         - wait_until:
+  #             switch.is_on: nextion_init
+  #         - lambda: id(disp1).set_component_text_printf("Connecting.ip_addr", "%s", id(ip_address).state.c_str());
+
+  # # Uptime in a human readable form. Updated from the uptime sensor
+  # - platform: template
+  #   name: $device_name Uptime Human Readable
+  #   id: uptime_human
+  #   icon: mdi:clock-start
+
+  # # ESPHome version used to compile the app
+  # - platform: version
+  #   name: $device_name ESPHome Version
+
+  # Sun sensor from HA. Used to decide whether a sun or moon weather symbol should be used.
+  - platform: homeassistant
+    id: sun_sun
+    entity_id: sun.sun
+
+
+# Weather symbol, HA weather entity to pull data from
+  - platform: homeassistant
+    id: weather_symbol
+    entity_id: sensor.weather_fivedays_ns
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            std::string str = "";
+            std::vector<std::string> v;
+            std::vector<std::string> five;
+            char * token;
+            char seps[] = ";";
+            std::string fivedays = "";
+            fivedays = id(weather_symbol).state;
+          
+            //ESP_LOGD("%s", fivedays.c_str());
+            five.clear();
+            std::string w_speed = "";
+            
+            int count = 0;
+            int daycount = 0;
+            std::string day;
+          
+            w_speed = strtok (&fivedays[0],"| ");
+            fivedays = strtok (NULL, " ");
+            
+            token = strtok (&fivedays[0],"#");
+            while (token != NULL)
+            {
+              five.push_back(token);
+              token = strtok (NULL, "#");
+            }
+            day = id(disp1_day).state;
+            
+            
+            for ( std::string fiv : five ) {
+              //ESP_LOGD("test: ", "daycount: %s", daycount);
+              //ESP_LOGD("test: ", "day: %s", day;
+              if(to_string(daycount) == day){
+                str = "";
+                str = fiv;
+                //ESP_LOGD("test: ", "String to Vector: %s", str.c_str());
+                v.clear();
+                token = strtok (&str[0],seps);
+                while (token != NULL)
+                {
+                  v.push_back(token);
+                  token = strtok (NULL, seps);
+                }
+                for ( std::string s : v ) {
+                  if(count == 0){
+                    if(daycount == 0){
+                      id(disp1).set_component_text_printf("Home.dag", "%s", "Idag");
+                      id(disp1).set_component_text_printf("Home.wind", "%s m/s", w_speed.c_str());
+                    }else if(daycount == 1){
+                      id(disp1).set_component_text_printf("Home.dag", "%s", "Imorgon");
+                      id(disp1).set_component_text_printf("Home.wind", "%s", " ");
+                    }else{
+                      id(disp1).set_component_text_printf("Home.dag", "%s", s.c_str());
+                      id(disp1).set_component_text_printf("Home.wind", "%s", " ");
+                    }
+                  }else if(count == 1){
+                    id(disp1).set_component_text_printf("Home.temp", "%s", s.c_str());
+                  }else if(count == 2){
+                    id(disp1).set_component_text_printf("Home.tempfl", "%s", s.c_str());
+                  }else if(count == 3){
+                    int symbol=5; // 5 is a empty box.
+                    if (s == "clear-night") {
+                      symbol=6;
+                    } else if (s == "cloudy") {
+                      symbol=7;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=8;
+                      }
+                    } else if (s == "fog") {
+                      symbol=9;
+                    } else if (s == "hail" || s == "snowy-rainy") {
+                      symbol=10;
+                    } else if (s == "lightning") {
+                      symbol=11;
+                    } else if (s == "lightning-rainy" || s == "exceptional") {
+                      symbol=12;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=13;
+                      }
+                    } else if (s == "partlycloudy") {
+                      symbol=14;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol=8;
+                      }
+                    } else if (s == "pouring") {
+                      symbol=15;
+                    } else if (s == "rainy") {
+                      symbol=16;
+                    } else if (s == "snowy") {
+                      symbol=17;
+                    } else if (s == "sunny") {
+                      symbol=18;
+                      if (id(sun_sun).state == "below_horizon" && daycount == 0) {
+                        symbol = 6;
+                      }
+                    } else if (s == "windy" || s == "windy-variant") {
+                      symbol=19;              
+                    }
+                    id(disp1).send_command_printf("Home.weather_symbol.pic=%i", symbol);
+                  }
+                   
+                  //ESP_LOGD("test: ", "s %s", s.c_str());
+                  count += 1;
+                }
+                
+                count = 0;
+              }
+              daycount += 1;
+            }
+
+  # Weather symbol, HA weather entity to pull data from
+  # - platform: homeassistant
+  #   id: weather_symbol_org
+  #   entity_id: weather.smhi_home
+  #   on_value:
+  #     then:
+  #       - wait_until:
+  #           switch.is_on: nextion_init
+  #       - lambda: |-
+  #           int symbol=5; // 5 is a empty box.
+  #           if (id(weather_symbol).state == "clear-night") {
+  #             symbol=6;
+  #           } else if (id(weather_symbol).state == "cloudy") {
+  #             symbol=7;
+  #             if (id(sun_sun).state == "below_horizon") {
+  #               symbol=8;
+  #             }
+  #           } else if (id(weather_symbol).state == "fog") {
+  #             symbol=9;
+  #           } else if (id(weather_symbol).state == "hail" || id(weather_symbol).state == "snowy-rainy") {
+  #             symbol=10;
+  #           } else if (id(weather_symbol).state == "lightning") {
+  #             symbol=11;
+  #           } else if (id(weather_symbol).state == "lightning-rainy" || id(weather_symbol).state == "exceptional") {
+  #             symbol=12;
+  #             if (id(sun_sun).state == "below_horizon") {
+  #               symbol=13;
+  #             }
+  #           } else if (id(weather_symbol).state == "partlycloudy") {
+  #             symbol=14;
+  #             if (id(sun_sun).state == "below_horizon") {
+  #               symbol=8;
+  #             }
+  #           } else if (id(weather_symbol).state == "pouring") {
+  #             symbol=15;
+  #           } else if (id(weather_symbol).state == "rainy") {
+  #             symbol=16;
+  #           } else if (id(weather_symbol).state == "snowy") {
+  #             symbol=17;
+  #           } else if (id(weather_symbol).state == "sunny") {
+  #             symbol=18;
+  #             if (id(sun_sun).state == "below_horizon") {
+  #               symbol = 6;
+  #             }
+  #           } else if (id(weather_symbol).state == "windy" || id(weather_symbol).state == "windy-variant") {
+  #             symbol=19;              
+  #           }
+  #           id(disp1).send_command_printf("Home.weather_symbol.pic=%i", symbol);
+            
+  # Thermostat selected room heating color, fetched from HA
+  - platform: homeassistant
+    id: selected_thermostat_heating
+    entity_id: sensor.ns_kitchen_selected_room_heating
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 65535;
+            if (id(selected_thermostat_heating).state == "on") {
+              symbol=63488;
+            }
+            id(disp1).send_command_printf("Thermostat.temp.pco=%i", symbol);
+
+  # Thermostat selected room heating boost, fetched from HA
+  - platform: homeassistant
+    id: selected_thermostat_boost
+    entity_id: sensor.ns_kitchen_selected_room_boost
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 45;
+            if (id(selected_thermostat_boost).state == "on") {
+              symbol=44;
+            }
+            id(disp1).send_command_printf("Thermostat.boost.pic=%i", symbol);
+
+  # Light setup, first light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: kokslampa
+    entity_id: light.kokslampa
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 22;
+            if (id(kokslampa).state == "on") {
+              symbol=23;
+            }
+            id(disp1).send_command_printf("Lights.light0.pic=%i", symbol);
+
+  # Light setup, second light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: tavlan
+    entity_id: light.sonoff_1000cb7905
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 24;
+            if (id(tavlan).state == "on") {
+              symbol=25;
+            }
+            id(disp1).send_command_printf("Lights.light1.pic=%i", symbol);
+ 
+  # Light setup, third light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: taklampan
+    entity_id: light.taklampan
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 28;
+            if (id(taklampan).state == "on") {
+              symbol=29;
+            }
+            id(disp1).send_command_printf("Lights.light2.pic=%i", symbol);
+ 
+  # Light setup, fourth light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: hallen
+    entity_id: switch.hallen
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 26;
+            if (id(hallen).state == "on") {
+              symbol=27;
+            }
+            id(disp1).send_command_printf("Lights.light3.pic=%i", symbol);
+
+  # Light setup, fifth light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: blitzwolf_1
+    entity_id: switch.blitzwolf_1
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 36;
+            if (id(blitzwolf_1).state == "on") {
+              symbol=37;
+            }
+            id(disp1).send_command_printf("Lights.light4.pic=%i", symbol);
+ 
+  # Light setup, sixth light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: blitzwolf_2
+    entity_id: switch.blitzwolf_2
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 32;
+            if (id(blitzwolf_2).state == "on") {
+              symbol=33;
+            }
+            id(disp1).send_command_printf("Lights.light5.pic=%i", symbol);
+
+  # Light setup, seventh light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: matildas_lampa
+    entity_id: light.matildas_lampa
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 39;
+            if (id(matildas_lampa).state == "on") {
+              symbol=38;
+            }
+            id(disp1).send_command_printf("Lights.light6.pic=%i", symbol);
+
+
+  # Light setup, eighth light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: davids_lampa
+    entity_id: light.davids_lampa
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 30;
+            if (id(davids_lampa).state == "on") {
+              symbol=31;
+            }
+            id(disp1).send_command_printf("Lights.light7.pic=%i", symbol);
+
+  # Light setup, ninth light. If you want to leave a light out, just comment out the section for the light and name.
+  - platform: homeassistant
+    id: skapen
+    entity_id: light.skapen
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: |-
+            int symbol = 56;
+            if (id(skapen).state == "on") {
+              symbol=55;
+            }
+            id(disp1).send_command_printf("Lights2.light0.pic=%i", symbol);
+
+  # Home page, text line 1 (lower right part of screen)
+  - platform: homeassistant
+    id: home_text1
+    entity_id: sensor.alarm_andreas
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Home.text1", "%s", id(home_text1).state.c_str());
+        
+  # Home page, text line 2 (lower right part of screen)
+  - platform: homeassistant
+    id: home_text2
+    entity_id: sensor.alarm_petra
+    on_value:
+      then:
+        - wait_until:
+            switch.is_on: nextion_init
+        - lambda: id(disp1).set_component_text_printf("Home.text2", "%s", id(home_text2).state.c_str());
+
+
+number:
+  # Screen brightness
+  - platform: template
+    name: $device_name Brightness
+    id: brightness
+    entity_category: config
+    unit_of_measurement: '%'
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 30
+    set_action:
+      then:
+        - lambda: 'id(disp1).set_backlight_brightness(x/100);'
+        - lambda: 'id(disp1).send_command_printf("Home.brightness.val=%i", int(x));'
+
+  # Screen brightness dimmed down
+  - platform: template
+    name: $device_name Brightness dimdown
+    id: brightness_dim
+    entity_category: config
+    unit_of_measurement: '%'
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 1
+    set_action:
+      then:
+        - lambda: 'id(disp1).send_command_printf("Home.brightdd.val=%i", int(x));'
+
+      
+# Configure the screen itself
+display:
+  - platform: nextion
+    id: disp1
+    uart_id: tf_uart
+    tft_url: https://[Your path here]/local/hmi0.tft 
+    # A little fun...
+    on_setup:
+      then:
+        # Enable 1 light page (up to 4 available)
+        - lambda: id(disp1).send_command_printf("Lights.pages.val=2");
+        - number.set:
+            id: brightness
+            value: 30
+        - lambda: id(disp1).send_command_printf("page 4");
+        - wait_until:
+            api.connected
+        - switch.template.publish:
+            id: nextion_init
+            state: on
+        - lambda: id(disp1).send_command_printf("Home.day.val=0");
+        - lambda: id(disp1).send_command_printf("Home.dayt.txt=0");    
+        - delay: 3s
+        - lambda: id(disp1).send_command_printf("page 0");
+        
