@@ -1,0 +1,490 @@
+- id: '1649014486439'
+  alias: NS panel kitchen boost heating
+  description: ''
+  trigger:
+  - platform: template
+    value_template: '{{ now().timestamp() > state_attr(''input_datetime.ns_panel_kitchen_boost_david'',
+      ''timestamp'')}}'
+    id: off david
+  - platform: template
+    value_template: '{{ now().timestamp() > state_attr(''input_datetime.ns_panel_kitchen_boost_matilda'',
+      ''timestamp'')}}'
+    id: off matilda
+  - platform: template
+    value_template: '{{ now().timestamp() > state_attr(''input_datetime.ns_panel_kitchen_boost_vardagsrum'',
+      ''timestamp'')}}'
+    id: off vardagsrum
+  - platform: template
+    value_template: '{{ now().timestamp() > state_attr(''input_datetime.ns_panel_kitchen_boost_sovrum'',
+      ''timestamp'')}}'
+    id: off sovrum
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_david
+    to: 'on'
+    id: on david
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_matilda
+    to: 'on'
+    id: on matilda
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_vardagsrum
+    to: 'on'
+    id: on vardagsrum
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_sovrum
+    to: 'on'
+    id: on sovrum
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_david
+    to: 'off'
+    id: off david
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_matilda
+    to: 'off'
+    id: off matilda
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_vardagsrum
+    to: 'off'
+    id: off vardagsrum
+  - platform: state
+    entity_id: input_boolean.ns_panel_kitchen_boost_sovrum
+    to: 'off'
+    id: off sovrum
+  condition: []
+  action:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.id.split(" ")[0] == "on" }}'
+      sequence:
+      - service: climate.set_temperature
+        data:
+          temperature: 24
+        target:
+          entity_id: '{{ ''climate.'' ~ trigger.id.split(" ")[1] }}'
+    default: []
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.id.split(" ")[0] == "off" }}'
+      sequence:
+      - choose:
+        - conditions:
+          - condition: template
+            value_template: '{{ trigger.id.split(" ")[1] == "vardagsrum" }}'
+          sequence:
+          - service: climate.set_temperature
+            data:
+              temperature: 22
+            target:
+              entity_id: '{{ ''climate.'' ~ trigger.id.split(" ")[1] }}'
+        default:
+        - service: climate.set_temperature
+          data:
+            temperature: 21.5
+          target:
+            entity_id: '{{ ''climate.'' ~ trigger.id.split(" ")[1] }}'
+    default: []
+  mode: single
+
+
+
+
+
+- id: '1650716731943'
+  alias: ns panel kitchen actions
+  description: ''
+  trigger:
+  - platform: template
+    value_template: '{{ states(''sensor.ns_panel_last_click_va'') is match("\d+,\d+,\d+")
+      }}'
+    id: color change
+  - platform: template
+    value_template: '{{ states(''sensor.ns_panel_last_click_va'') is match("light.*|switch.*|climate.*")
+      }}'
+    id: short
+  - platform: state
+    entity_id: sensor.ns_panel_current_display_page
+    to: '9.00'
+    id: thermostat
+  - platform: template
+    value_template: '{{ states(''sensor.ns_panel_last_click_va'') is match("brightness\d+")
+      }}'
+    id: brightness change
+  - platform: template
+    value_template: '{{ states(''sensor.ns_panel_last_click_va'') != "" and states(''sensor.ns_panel_last_click_va'')
+      != "newtxt"}}'
+    for: 00:00:02
+    id: long
+  - platform: template
+    value_template: '{{ states(''sensor.ns_panel_last_click_va'') is match("color_temp\d+")
+      }}'
+    id: color_temp
+  condition: []
+  action:
+  
+  
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: sensor.ns_panel_current_display_page
+        state: '1.00'
+      - condition: trigger
+        id: short
+      sequence:
+      - service: homeassistant.toggle
+        data: {}
+        target:
+          entity_id: '{{ states(''sensor.ns_panel_last_click_va'') }}'
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: sensor.ns_panel_current_display_page
+        state: '5.00'
+      - condition: trigger
+        id: short
+      sequence:
+      - service: homeassistant.toggle
+        data: {}
+        target:
+          entity_id: '{{ states(''sensor.ns_panel_last_click_va'') }}'
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: sensor.ns_panel_current_display_page
+        state: '9.00'
+      sequence:
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: climate.vardagsrum
+          sequence:
+          - service: input_text.set_value
+            data:
+              value: climate.vardagsrum
+            target:
+              entity_id:
+              - input_text.ns_kitchen_temp
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=43
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: climate.matilda
+          sequence:
+          - service: input_text.set_value
+            data:
+              value: climate.matilda
+            target:
+              entity_id:
+              - input_text.ns_kitchen_temp
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=50
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: climate.david
+          sequence:
+          - service: input_text.set_value
+            data:
+              value: climate.david
+            target:
+              entity_id:
+              - input_text.ns_kitchen_temp
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=48
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: climate.sovrum
+          sequence:
+          - service: input_text.set_value
+            data:
+              value: climate.sovrum
+            target:
+              entity_id:
+              - input_text.ns_kitchen_temp
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=46
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: script.ns_kitchen_temp_up
+          sequence:
+          - service: script.ns_kitchen_temp_up
+            data: {}
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: script.ns_kitchen_temp_down
+          sequence:
+          - service: script.ns_kitchen_temp_down
+            data: {}
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: sensor.ns_panel_last_click_va
+            state: script.ns_kitchen_temp_boost
+          sequence:
+          - service: script.ns_kitchen_temp_boost
+            data: {}
+        default: []
+    default: []
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: thermostat
+      sequence:
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: input_text.ns_kitchen_temp
+            state: climate.vardagsrum
+          sequence:
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=43
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: input_text.ns_kitchen_temp
+            state: climate.matilda
+          sequence:
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=50
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: input_text.ns_kitchen_temp
+            state: climate.david
+          sequence:
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=48
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=47
+        default: []
+      - choose:
+        - conditions:
+          - condition: state
+            entity_id: input_text.ns_kitchen_temp
+            state: climate.sovrum
+          sequence:
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.kitchen.pic=42
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.matilda.pic=51
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.david.pic=49
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Thermostat.sovrum.pic=46
+        default: []
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: long
+      sequence:
+      - choose:
+        - conditions:
+          - condition: template
+            value_template: "{{ states('sensor.ns_panel_last_click_va') in ['light.davids_lampa',\
+              \ 'light.matildas_lampa',\n  'light.skapen', 'light.kokslampa', 'light.taklampan']\
+              \ }}"
+          sequence:
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: Colorwheel.vprevpage.val={{ states('sensor.ns_panel_current_display_page')
+                | replace(".00","") }}
+          - service: input_text.set_value
+            data:
+              value: '{{ states(''sensor.ns_panel_last_click_va'') }}'
+            target:
+              entity_id: input_text.ns_panel_kitchen_selected_device
+          - service: esphome.ns_kitchen_set_page
+            data:
+              page: 10
+          - choose:
+            - conditions:
+              - condition: template
+                value_template: '{{ states("sensor.ns_panel_last_click_va") in [''light.davids_lampa'',
+                  ''light.matildas_lampa'', ''light.skapen''] }}'
+              sequence:
+              - service: esphome.ns_kitchen_send_command
+                data:
+                  cmd: vis h1,0
+              - service: esphome.ns_kitchen_send_command
+                data:
+                  cmd: vis p0,0
+            default:
+            - service: esphome.ns_kitchen_send_command
+              data:
+                cmd: vis colorWheel,0
+            - choose:
+              - conditions:
+                - condition: template
+                  value_template: '{{ states("sensor.ns_panel_last_click_va") == ''light.taklampan''
+                    }}'
+                sequence:
+                - service: esphome.ns_kitchen_send_command
+                  data:
+                    cmd: vis h1,0
+                - service: esphome.ns_kitchen_send_command
+                  data:
+                    cmd: vis p0,0
+              default:
+              - service: esphome.ns_kitchen_send_command
+                data:
+                  cmd: vis h1,1
+              - service: esphome.ns_kitchen_send_command
+                data:
+                  cmd: vis p0,1
+              - service: esphome.ns_kitchen_send_command
+                data:
+                  cmd: h1.val={{state_attr(states('sensor.ns_panel_last_click_va'),
+                    'color_temp')}}
+          - service: esphome.ns_kitchen_send_command
+            data:
+              cmd: h0.val={{state_attr(states('sensor.ns_panel_last_click_va'), 'brightness')}}
+        default: []
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: color change
+      sequence:
+      - service: light.turn_on
+        data:
+          rgb_color: '{{ states("sensor.ns_panel_last_click_va").split(",") }}'
+        target:
+          entity_id: '{{ states("input_text.ns_panel_kitchen_selected_device") }}'
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: brightness change
+      sequence:
+      - service: light.turn_on
+        data:
+          brightness: '{{ states("sensor.ns_panel_last_click_va") |replace("brightness","")
+            | int }}'
+        target:
+          entity_id: '{{ states("input_text.ns_panel_kitchen_selected_device") }}'
+    default: []
+    
+    
+    
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: color_temp
+      sequence:
+      - service: light.turn_on
+        data:
+          color_temp: '{{ states("sensor.ns_panel_last_click_va") |replace("color_temp","")
+            | int }}'
+        target:
+          entity_id: '{{ states("input_text.ns_panel_kitchen_selected_device") }}'
+    default: []
+  mode: single
