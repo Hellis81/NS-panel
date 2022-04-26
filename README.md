@@ -338,15 +338,21 @@ In order for this to work (if copied exactly) then you need a few helpers and se
 To each room there is two entities, one boolean to say if boost heating is on/off and one datetime when it should be turned off. (and already we can see the naming convention is broken)
 
 `input_datetime.ns_panel_kitchen_boost_david`
+
 `input_boolean.ns_panel_kitchen_boost_david`
 
 And then the other rooms:
 
 `input_datetime.ns_panel_kitchen_boost_matilda`
+
 `input_boolean.ns_panel_kitchen_boost_matilda`
+
 `input_datetime.ns_panel_kitchen_boost_sovrum` # bedroom
+
 `input_boolean.ns_panel_kitchen_boost_sovrum`
+
 `input_datetime.ns_panel_kitchen_boost_vardagsrum` # livingroom/kitchen
+
 `input_boolean.ns_panel_kitchen_boost_vardagsrum`
 
 And lastly we need one helper to hold the selected device when you long press a light.
