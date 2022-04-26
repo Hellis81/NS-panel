@@ -1,0 +1,55 @@
+```
+ns_kitchen_temp_up:
+  alias: ns kitchen temp up
+  sequence:
+  - service: climate.set_temperature
+    data:
+      temperature: '{{ state_attr(states(''input_text.ns_kitchen_temp''), ''temperature'')
+        | float + 0.1 }}'
+    target:
+      entity_id: '{{ states(''input_text.ns_kitchen_temp'') }}'
+  mode: single
+ns_kitchen_temp_down:
+  alias: ns kitchen temp down
+  sequence:
+  - service: climate.set_temperature
+    data:
+      temperature: '{{ state_attr(states(''input_text.ns_kitchen_temp''), ''temperature'')
+        | float - 0.1 }}'
+    target:
+      entity_id: '{{ states(''input_text.ns_kitchen_temp'') }}'
+  mode: single
+ns_kitchen_temp_boost:
+  alias: ns kitchen temp boost
+  sequence:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ states(''input_boolean.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
+          | replace(''climate.'', '''')) == ''off'' }}'
+      sequence:
+      - service: input_datetime.set_datetime
+        data:
+          timestamp: '{{ now().timestamp() | int + 2700 }}'
+        target:
+          entity_id: '{{ ''input_datetime.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
+            | replace(''climate.'', '''') }}'
+      - service: input_boolean.turn_on
+        data: {}
+        target:
+          entity_id: '{{ ''input_boolean.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
+            | replace(''climate.'', '''') }}'
+    default:
+    - service: input_datetime.set_datetime
+      data:
+        timestamp: '{{ now().timestamp() | int + 10 }}'
+      target:
+        entity_id: '{{ ''input_datetime.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
+          | replace(''climate.'', '''') }}'
+    - service: input_boolean.turn_off
+      data: {}
+      target:
+        entity_id: '{{ ''input_boolean.ns_panel_kitchen_boost_'' ~ states(''input_text.ns_kitchen_temp'')
+          | replace(''climate.'', '''') }}'
+  mode: single
+```
